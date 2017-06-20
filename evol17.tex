@@ -1,0 +1,349 @@
+\documentclass{tikzposter}
+\tikzposterlatexaffectionproofoff
+
+\usepackage{xcolor}
+\usetikzlibrary{arrows.meta}
+
+\usepackage{hyperref}
+\usepackage{fontawesome}
+\usepackage{doi}
+\usepackage{qrcode}
+
+\makeatletter
+\renewcommand\TP@maketitle{%
+   \begin{minipage}{0.7\linewidth}
+  \color{titlefgcolor}
+  {\bfseries \Huge \sc \@title \par}
+  \vspace*{1em}
+  {\huge \@author \par}
+  \vspace*{1em}
+  {\LARGE \@institute}
+  \end{minipage}
+  \hfill
+  \begin{minipage}{0.3\linewidth}
+   \centering
+   \begin{tikzpicture}
+     \begin{scope}[scale=5,shift={(-3,0)}]
+       \input{fh.tex}
+     \end{scope}
+     \begin{scope}[scale=1.2,shift={(0,-1)}]
+       \input{uw.tex}
+     \end{scope}
+   \end{tikzpicture}
+  \end{minipage}
+}
+\makeatother
+
+\title{\parbox{\linewidth}{\raggedright Probabilistic Path Hamiltonian Monte Carlo for \\ Bayesian Phylogenetic Inference}}
+\author{Vu Dinh,\** \underline{Arman Bilge},\** Cheng Zhang,\** and Frederick A. Matsen IV}
+\institute{\Large \** Equal contribution \quad \faEnvelope \enskip \href{mailto:abilge@fredhutch.org}{\texttt{abilge@fredhutch.org}} \quad \faTwitter \enskip \href{http://twitter.com/armanbilge}{\texttt{@armanbilge}}}
+
+\defineblockstyle{MySlide}{
+  titlewidthscale=1, bodywidthscale=1, titleleft,
+  titleoffsetx=0pt, titleoffsety=0pt, bodyoffsetx=0pt, bodyoffsety=0pt,
+  bodyverticalshift=0pt, roundedcorners=0, linewidth=0pt, titleinnersep=1cm,
+  bodyinnersep=1cm
+}{
+  \ifBlockHasTitle%
+  \draw[draw=none, left color=blocktitlebgcolor, right color=blocktitlebgcolor]
+     (blocktitle.south west) rectangle (blocktitle.north east);
+  \fi%
+  \draw[draw=none, fill=blockbodybgcolor] %
+  (blockbody.north west) [rounded corners=30] -- (blockbody.south west) --
+  (blockbody.south east) [rounded corners=0]-- (blockbody.north east) -- cycle;
+}
+
+\usetheme{Autumn}
+\usecolorstyle{Russia}
+\definecolor{fhnavy}{RGB}{33,50,78}
+\definecolor{fhgreen}{RGB}{130,188,74}
+\definecolor{fhteal}{RGB}{43,114,112}
+\definecolor{fhturq}{RGB}{66,173,170}
+\definecolor{fhgray}{RGB}{233,233,233}
+\definecolor{fhorange}{RGB}{240,102,47}
+\colorlet{titlebgcolor}{fhnavy}
+\colorlet{blocktitlebgcolor}{fhteal}
+\useblockstyle{MySlide}
+\renewcommand{\familydefault}{\sfdefault}
+\usepackage{sfmath}
+
+\usepackage{multicol}
+\usepackage{enumitem}
+\setlist[itemize]{label=$\triangleright$, labelsep=12pt}
+
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{mathtools}
+\newcommand{\dd}{\, \mathsf{d}}
+\renewcommand{\vec}[1]{\ensuremath{\boldsymbol{\mathbf{#1}}}}
+\newcommand{\mat}[1]{\ensuremath{\boldsymbol{\mathbf{#1}}}}
+\newcommand{\op}[1]{\ensuremath{\boldsymbol{\mathbf{#1}}}}
+\newcommand{\norm}[1]{\ensuremath{\mathcal{N}\left(#1\right)}}
+
+\usepackage[none]{hyphenat}
+\frenchspacing
+
+\begin{document}
+
+  \maketitle
+
+  \begin{columns}
+
+  \column{0.5}
+
+  \block{Motivation}{
+    \flushleft
+    \begin{itemize}
+      \item Bayesian phylogenetics has \textbf{transformed evolutionary biology}
+      % \begin{itemize}
+      %   \item Divergence dating and clock rate estimation
+      %   \item Inference of demographics and population history
+      %   \item Phylodynamic and epidemiological parameters
+      % \end{itemize}
+      \item Want to \textbf{sample phylogenetic trees} according to probability given the data $P\left(\mathcal{T} \mid D\right)$
+      \item Need a way to \textbf{efficiently explore} different trees
+      \item Current state-of-the-art: Metropolis--Hastings Markov chain Monte Carlo (\textbf{MCMC})
+      \item Imagine a robot taking a \textbf{random walk}; inference is too slow for $> 1000$ taxa
+      \item But suppose we gave our robot a \textbf{pair of skis}...
+    \end{itemize}
+  }
+
+  \block{Physics Primer}{
+    \begin{multicols*}{2}
+      \flushleft
+      Let
+      \begin{itemize}
+        \item $\vec{q}$ be the robot's position
+        \item $\vec{v}$ be its velocity
+        \item $\mat{M}$ be its mass
+        \item $U\left(\vec{q}\right)$ be its potential energy
+        \item $K\left(\vec{p}\right)$ be its kinetic energy
+      \end{itemize}
+      Then the \textbf{Hamiltonian} is
+      $$\mathcal{H}\left(\vec{q},\vec{p}\right) = U\left(\vec{q}\right) + K\left(\vec{p}\right)$$
+      Notice that total energy $\mathcal{H}$ is \textbf{conserved}.
+      The robot skis on the slopes according to \textbf{Newton's laws of motion}.
+
+      \columnbreak
+
+      \centering
+      \begin{tikzpicture}
+        \node at (0, 0) {\includegraphics[width=4in]{primer}};
+        \begin{scope}[scale=2.5, line width=5pt]
+          \draw[{Latex[scale=1]}-] (-1,1.2) -- (-1, -3);
+          \node at (-0.4, -1) {$U\left(\vec{q}\right)$};
+          \draw[-{Latex[scale=1]}] (-2,-3.2) -- (2, -3.2);
+          \node at (0, -2.9) {$\vec{q}$};
+          \draw[-{Latex[scale=1]},white] (-0.5,1.5) -- (0, 1);
+          \node[white] at (0.8, 1.35) {$\vec{p}=\mat{M}\vec{v}$};
+          \node[white] at (0, 3) {$K\left(\vec{p}\right) = \frac{1}{2}\vec{p}^T \mat{M}^{-1} \vec{p}$};
+        \end{scope}
+      \end{tikzpicture}
+    \end{multicols*}
+  }
+
+  \block{Hamiltonian Monte Carlo}{
+
+    \flushleft
+
+    Hamiltonian Monte Carlo (HMC) is a statistical technique that harnesses physical laws to efficiently sample complex distributions [2].
+    To do so, we construct the ski slope as follows:
+    \begin{itemize}
+      \item Every location $\vec{q}$ maps to some tree and branch lengths
+      \item The elevation at point $\vec{q}$ is $-\log{P\left(\mathcal{T}\mid D\right)}$
+      \begin{itemize}
+        \item Locations with \textbf{high elevation} have \textbf{low probability}
+        \item Locations with \textbf{low elevation} have \textbf{high probability}
+      \end{itemize}
+    \end{itemize}
+    We can only approximately simulate the robot's motion with a numerical integrator.
+
+    \bigskip
+
+    However, vanilla HMC \textbf{does not currently work for phylogenetics}.
+    To extend HMC to the \textbf{space of phylogenetic trees} we use the following ideas:
+
+    \vspace{-96pt}
+
+    \innerblock{Billera--Holmes\\--Vogtmann\\Tree Space [1]}{
+      \flushleft
+      \begin{itemize}
+        \item Each topology is represented by a \textbf{hypercube} containing all possible choices of branch lengths
+        \item By \textbf{collapsing an internal branch length} to 0 and re-expanding it differently, we can change a tree to one of its \textbf{NNI neighbors}
+        \item Thus we can ``glue'' the tree-cubes together into a \textbf{single space}
+      \end{itemize}
+    }
+
+    \vspace{-96pt}
+
+    \innerblock{Leap-Prog Integrator}{
+      \flushleft
+      \begin{itemize}
+        \item Because every boundary is \textbf{shared between 3 trees}, there is no deterministic path for the robot to follow
+        \item Introduce a \textbf{probabilistic simulator} that chooses randomly between neighboring trees at the boundary
+      \end{itemize}
+    }
+
+    \vspace{-96pt}
+
+    \innerblock{Surrogate Hamiltonian}{
+      \flushleft
+      \begin{itemize}
+        \item At between-tree boundaries, the ski slope forms \textbf{sharp peaks}
+        \item \textbf{Difficult} to accurately simulate robot's motion at these peaks
+        \item Substitute a surrogate $\mathcal{H}^\prime$ that artificially \textbf{smooths} the peaks
+      \end{itemize}
+    }
+
+  }
+
+  \block{Example: 4 taxa}{
+    \centering
+    \vspace{-0.5in}
+    \begin{tikzpicture}
+      \begin{scope}[scale=1.25,line width=4pt,shift={(22,-6)}]
+        \begin{scope}[minimum size=8mm]
+          \node [label=center:A] (0) at (-1, 1) {};
+          \node [label=center:C] (1) at (1, -1) {};
+          \node [label=center:B] (2) at (1, 1) {};
+          \node [label=center:D] (3) at (-1, -1) {};
+          \node [] (4) at (-2, 0) {};
+          \node [] (5) at (-3, 0) {};
+          \node [label=center:C] (6) at (-4, -1.5) {};
+          \node [label=center:D] (7) at (-6, -1.5) {};
+          \node [] (8) at (-5, -0.5) {};
+          \node [] (9) at (-5, 0.5) {};
+          \node [label=center:A] (10) at (-6, 1.5) {};
+          \node [label=center:B] (11) at (-4, 1.5) {};
+          \node [] (12) at (2, 1.5) {};
+          \node [] (13) at (3, 2) {};
+          \node [] (14) at (2, -1.5) {};
+          \node [] (15) at (3, -2) {};
+          \begin{scope}[shift={(0,-1)}]
+            \node [label=center:A] (16) at (4, -0.75) {};
+            \node [label=center:C] (17) at (4, -2.75) {};
+            \node [] (18) at (5, -1.75) {};
+            \node [] (19) at (6, -1.75) {};
+            \node [label=center:B] (20) at (7, -2.75) {};
+            \node [label=center:D] (21) at (7, -0.75) {};
+          \end{scope}
+          \begin{scope}[shift={(0,1)}]
+            \node [label=center:D] (22) at (4, 0.5) {};
+            \node [label=center:A] (23) at (4, 2.5) {};
+            \node [] (24) at (5, 1.5) {};
+            \node [] (25) at (6, 1.5) {};
+            \node [label=center:C] (26) at (7, 0.5) {};
+            \node [label=center:B] (27) at (7, 2.5) {};
+          \end{scope}
+        \end{scope}
+        \draw[fhorange] (0.south east) to (1);
+        \draw[fhorange] (2) to (3);
+        \draw [<->] (4.center) to (5.center);
+        \draw[fhturq] (10) to (9.center);
+        \draw[fhturq] (9.center) to (8.center);
+        \draw[fhturq] (8.center) to (7);
+        \draw[fhturq] (8.center) to (6);
+        \draw[fhturq] (9.center) to (11);
+        \draw [<->] (14.center) to (15.center);
+        \draw [<->] (12.center) to (13.center);
+        \draw[fhnavy] (22) to (24.center);
+        \draw[fhnavy] (24.center) to (25.center);
+        \draw[fhnavy] (25.center) to (26);
+        \draw[fhnavy] (25.center) to (27);
+        \draw[fhnavy] (24.center) to (23);
+        \draw[fhgreen] (16) to (18.center);
+        \draw[fhgreen] (18.center) to (17);
+        \draw[fhgreen] (18.center) to (19.center);
+        \draw[fhgreen] (19.center) to (20);
+        \draw[fhgreen] (19.center) to (21);
+      \end{scope}
+      \begin{scope}[scale=2]
+        \input{surface.tex}
+        \node (27) at (0.5, -4) {$U\left(\vec{q}\right)$};
+        \node[fhorange] at (5.47, -3.7) {\textbullet};
+      \end{scope}
+    \end{tikzpicture}
+    \vspace{-1in}
+    %\textcolor{fhorange}{sharp peak}
+  }
+
+  \column{0.5}
+
+  \block{The Leap-Prog Integrator}{
+    \centering
+    \begin{tikzpicture}
+      \node at (0,0) {\includegraphics[height=5in]{leap-prog-a}};
+      \node at (18,0) {\includegraphics[height=4in]{leap-prog-b}};
+    \end{tikzpicture}
+  }
+
+  \block{Probabilistic Path HMC Algorithm}{
+    \begin{enumerate}
+      \item \textbf{Choose random momentum} for robot from normal distribution $\vec{p} \sim \norm{\vec{0}, \mat{M}^{-1}}$
+      \item Simulate its motion under smoothened surrogate $\mathcal{H}^\prime$ using \textbf{leap-prog integrator}
+      \item Flip its momentum
+      \item Let $a = \min\left(1, \exp\left(\mathcal{H}\left(\vec{q}, \vec{p}\right) - \mathcal{H}\left(\vec{q}^\prime, \vec{p}^\prime\right)\right)\right)$
+          \begin{itemize}
+              \item Remember that $\mathcal{H}$ is \textbf{approximately conserved} $\implies a \approx 1$
+          \end{itemize}
+      \item With probability $a$ \textbf{accept its position}; otherwise reject and put it back where it was
+      \item Flip its momentum again
+      \item Save its position as \textbf{sample from} $P\left(\mathcal{T}\mid D\right)$
+      \item Iterate as necessary
+    \end{enumerate}
+  }
+
+  \block{Results}{
+    \centering
+    \begin{tikzpicture}
+     \begin{scope}[scale=1.5,shift={(-12,1)}]
+       \input{enni.tex}
+     \end{scope}
+     \begin{scope}[scale=1.63]
+       \input{burnin.tex}
+     \end{scope}
+    \end{tikzpicture}
+  }
+
+  \block{Contributions}{
+    \flushleft
+    \begin{itemize}
+      \item Create a \textbf{probabilistic extension} of HMC to sample phylogenetic trees
+      \item Use a surrogate Hamiltonian to \textbf{smooth the transitions} between trees
+      \item Demonstrate that PPHMC makes \textbf{several NNIs in a single proposal} with high acceptance rate and that these NNIs may be \textbf{chosen ``intelligently''}
+      \item \textbf{Prove mathematically} that all of this gives a correct sampler (please see our paper!)
+      \item Provide two independent, \textbf{open source implementations} (also, see our paper)
+    \end{itemize}
+  }
+
+  \block{References}{
+    \flushleft
+    \begin{enumerate}
+      \item LF Billera et al. \textit{Adv Appl Math} 27.4 (2001). \texttt{\doi{10.1006/aama.2001.075}}
+      \item RM Neal. \textit{Handbook of Markov Chain Monte Carlo} Chapter 5 (2011).
+    \end{enumerate}
+  }
+
+  \block{Interested?}{
+    \begin{multicols*}{2}
+
+    \flushleft
+
+    \qrcode[height=5cm]{http://doi.org/10.5281/zenodo.814272}
+    \enspace Download this poster
+
+    \vspace{25pt} \texttt{\doi{10.5281/zenodo.814272}}
+
+    \columnbreak
+
+    \qrcode[height=5cm]{http://arxiv.org/abs/1702.07814}
+    \enspace Read our paper
+
+    \vspace{25pt} \href{http://arxiv.org/abs/1702.07814}{\texttt{arxiv.org/abs/1702.07814}}
+
+    \end{multicols*}
+  }
+
+  \end{columns}
+
+\end{document}
